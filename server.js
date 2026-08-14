@@ -1,4 +1,3 @@
-// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -6,12 +5,14 @@ const sqlite3 = require('sqlite3').verbose();
 const mysql = require('mysql2');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+
+// Railway asigna el puerto dinámicamente mediante process.env.PORT
+const PORT = process.env.PORT || 8080;
 
 app.use(cors());
 app.use(express.json());
 
-// ================= 1. CONFIGURACIÓN DE SQLITE (Offline de respaldo) =================
+// ================= 1. CONFIGURACIÓN DE SQLITE (Respaldo) =================
 const sqliteDB = new sqlite3.Database('./pedidos_local.db', (err) => {
     if (err) console.error("Error en SQLite local:", err.message);
     else console.log("✅ Conectado a SQLite Local exitosamente.");
@@ -19,44 +20,29 @@ const sqliteDB = new sqlite3.Database('./pedidos_local.db', (err) => {
 
 sqliteDB.run(`
 CREATE TABLE IF NOT EXISTS pedidos (
-
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-
     mesa TEXT,
-
     mesero TEXT,
-
     nombreCliente TEXT,
-
     items TEXT,
-
     estadoCocina TEXT,
-
     estadoBar TEXT,
-
     estadoEntrega TEXT,
-
     facturado INTEGER DEFAULT 0,
-
     ncf TEXT,
-
     hora TEXT,
-
     fecha TEXT DEFAULT CURRENT_TIMESTAMP
-
 )
 `);
 
-// ================= 2. CONFIGURACIÓN DE MYSQL (nube o XAMPP local) =================
-// En tu computadora (XAMPP), si no configuras un archivo .env, usa los valores
-// por defecto de abajo. En la nube (Railway, etc.), esos valores los reemplazan
-// las variables de entorno que configures en el panel del servicio.
+// ================= 2. CONFIGURACIÓN DE MYSQL (Railway / XAMPP) =================
+// Soporta los nombres estándar de Railway (MYSQLHOST, MYSQLUSER, etc.) y los personalizados
 const mysqlConnection = mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_DATABASE || 'restomanager_db',
-    port: process.env.DB_PORT || 3306,
+    host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
+    user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
+    password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
+    database: process.env.MYSQLDATABASE || process.env.DB_DATABASE || process.env.DB_NAME || 'restomanager_db',
+    port: process.env.MYSQLPORT || process.env.DB_PORT || 3306,
 });
 
 let usandoMySQL = true;
@@ -64,43 +50,73 @@ let usandoMySQL = true;
 mysqlConnection.connect((err) => {
     if (err) {
         console.log("⚠️ MySQL no disponible. Activando modo OFFLINE con SQLite.");
+        console.log("Detalle del error MySQL:", err.message);
         usandoMySQL = false;
     } else {
-       mysqlConnection.query(`
-CREATE TABLE IF NOT EXISTS pedidos (
-
-id INT AUTO_INCREMENT PRIMARY KEY,
-
-mesa VARCHAR(50),
-
-mesero VARCHAR(100),
-
-nombreCliente VARCHAR(100),
-
-items LONGTEXT,
-
-estadoCocina VARCHAR(20),
-
-estadoBar VARCHAR(20),
-
-estadoEntrega VARCHAR(20),
-
-facturado BOOLEAN DEFAULT FALSE,
-
-ncf VARCHAR(50),
-
-hora VARCHAR(20),
-
-fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-
-)
-`);
+        console.log("🟢 Conectado exitosamente a la base de datos MySQL.");
+        mysqlConnection.query(`
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            mesa VARCHAR(50),
+            mesero VARCHAR(100),
+            nombreCliente VARCHAR(100),
+            items LONGTEXT,
+            estadoCocina VARCHAR(20),
+            estadoBar VARCHAR(20),
+            estadoEntrega VARCHAR(20),
+            facturado BOOLEAN DEFAULT FALSE,
+            ncf VARCHAR(50),
+            hora VARCHAR(20),
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        `);
     }
+});
+
+// Endpoint de prueba de salud para verificar que el servidor responda
+app.get('/', (req, res) => {
+    res.send("Backend de RestoManager funcionando correctamente 🚀");
 });
 
 // ================= 3. ENTRADAS DE LA API REST (ENDPOINTS) =================
 
-// POST: Registrar un nuevo pedido desde la app
+// GET: Obtener todos los pedidos
+app.get('/api/pedidos', (req, res) => {
+    if (usandoMySQL) {
+        mysqlConnection.query(
+            "SELECT * FROM pedidos ORDER BY id DESC",
+            (err, rows) => {
+                if (err) {
+                    console.error("❌ Error al obtener pedidos de MySQL:", err);
+                    return res.status(500).json({ error: err.message });
+                }
+                const pedidos = rows.map(pedido => ({
+                    ...pedido,
+                    items: pedido.items ? JSON.parse(pedido.items) : []
+                }));
+                res.json(pedidos);
+            }
+        );
+    } else {
+        sqliteDB.all(
+            "SELECT * FROM pedidos ORDER BY id DESC",
+            [],
+            (err, rows) => {
+                if (err) {
+                    console.error("❌ Error al obtener pedidos de SQLite:", err);
+                    return res.status(500).json({ error: err.message });
+                }
+                const pedidos = rows.map(pedido => ({
+                    ...pedido,
+                    items: pedido.items ? JSON.parse(pedido.items) : []
+                }));
+                res.json(pedidos);
+            }
+        );
+    }
+});
+
+// POST: Registrar un nuevo pedido
 app.post('/api/pedidos', (req, res) => {
     console.log("📥 Petición recibida en /api/pedidos con datos:", req.body);
 
@@ -129,7 +145,7 @@ app.post('/api/pedidos', (req, res) => {
                 console.error("❌ Error de inserción en MySQL:", err.message);
                 return res.status(500).json({ error: err.message });
             }
-            console.log(`✅ ¡Pedido guardado exitosamente en MySQL! ID asignado: ${result.insertId}`);
+            console.log(`✅ ¡Pedido guardado exitosamente en MySQL! ID: ${result.insertId}`);
             res.status(201).json({
                 id: result.insertId,
                 mesa, mesero, nombreCliente, items, estadoCocina, estadoBar, estadoEntrega, facturado, ncf, hora,
@@ -150,8 +166,7 @@ app.post('/api/pedidos', (req, res) => {
     }
 });
 
-// PATCH: Actualizar el estado de un pedido existente (marcar listo, entregado,
-// anular, facturar, etc.). Recibe solo los campos que cambian.
+// PATCH: Actualizar el estado de un pedido
 app.patch('/api/pedidos/:id', (req, res) => {
     const { id } = req.params;
     const camposPermitidos = ['estadoCocina', 'estadoBar', 'estadoEntrega', 'facturado', 'ncf'];
@@ -171,7 +186,7 @@ app.patch('/api/pedidos/:id', (req, res) => {
 
     const query = `UPDATE pedidos SET ${asignaciones} WHERE id = ?`;
 
-    const callback = (err, result) => {
+    const callback = (err) => {
         if (err) {
             console.error("❌ Error al actualizar pedido:", err.message);
             return res.status(500).json({ error: err.message });
@@ -187,65 +202,7 @@ app.patch('/api/pedidos/:id', (req, res) => {
     }
 });
 
-
-app.get('/api/pedidos', (req, res) => {
-
-    if (usandoMySQL) {
-
-        mysqlConnection.query(
-            "SELECT * FROM pedidos ORDER BY id DESC",
-            (err, rows) => {
-
-                if (err) {
-                    console.error(err);
-                    return res.status(500).json(err);
-                }
-
-                const pedidos = rows.map(pedido => {
-
-                    return {
-                        ...pedido,
-                        items: pedido.items ? JSON.parse(pedido.items) : []
-                    };
-
-                });
-
-                res.json(pedidos);
-
-            }
-        );
-
-    } else {
-
-        sqliteDB.all(
-            "SELECT * FROM pedidos ORDER BY id DESC",
-            [],
-            (err, rows) => {
-
-                if (err) {
-                    console.error(err);
-                    return res.status(500).json(err);
-                }
-
-                const pedidos = rows.map(pedido => {
-
-                    return {
-                        ...pedido,
-                        items: pedido.items ? JSON.parse(pedido.items) : []
-                    };
-
-                });
-
-                res.json(pedidos);
-
-            }
-        );
-
-    }
-
-});
-
-// Escuchar en el puerto 3000 habilitando acceso a la red local
+// Escuchar en el puerto dinámico de Railway binding en 0.0.0.0
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor RestoManager corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor RestoManager corriendo en el puerto ${PORT}`);
 });
