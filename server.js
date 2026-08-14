@@ -1,11 +1,12 @@
 // server.js
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const mysql = require('mysql2');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -46,12 +47,16 @@ CREATE TABLE IF NOT EXISTS pedidos (
 )
 `);
 
-// ================= 2. CONFIGURACIÓN DE MYSQL DE XAMPP (Online principal) =================
+// ================= 2. CONFIGURACIÓN DE MYSQL (nube o XAMPP local) =================
+// En tu computadora (XAMPP), si no configuras un archivo .env, usa los valores
+// por defecto de abajo. En la nube (Railway, etc.), esos valores los reemplazan
+// las variables de entorno que configures en el panel del servicio.
 const mysqlConnection = mysql.createConnection({
-    host: 'localhost', 
-    user: 'root',      // Usuario por defecto de XAMPP
-    password: '',      // Contraseña vacía por defecto en XAMPP
-    database: 'restomanager_db' // La base de datos que creaste en phpMyAdmin
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_DATABASE || 'restomanager_db',
+    port: process.env.DB_PORT || 3306,
 });
 
 let usandoMySQL = true;
