@@ -6,10 +6,16 @@ const mysql = require('mysql2');
 
 const app = express();
 
-// Railway asigna el puerto dinámicamente mediante process.env.PORT
-const PORT = process.env.PORT || 8080;
+// Se alinea a process.env.PORT o usa 3000 por defecto para hacer match con el proxy de Railway
+const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// Configuración de CORS habilitada para permitir peticiones desde Vercel
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 // ================= 1. CONFIGURACIÓN DE SQLITE (Respaldo) =================
@@ -36,7 +42,6 @@ CREATE TABLE IF NOT EXISTS pedidos (
 `);
 
 // ================= 2. CONFIGURACIÓN DE MYSQL (Railway / XAMPP) =================
-// Soporta los nombres estándar de Railway (MYSQLHOST, MYSQLUSER, etc.) y los personalizados
 const mysqlConnection = mysql.createConnection({
     host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
     user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
@@ -73,7 +78,7 @@ mysqlConnection.connect((err) => {
     }
 });
 
-// Endpoint de prueba de salud para verificar que el servidor responda
+// Endpoint de prueba de salud
 app.get('/', (req, res) => {
     res.send("Backend de RestoManager funcionando correctamente 🚀");
 });
@@ -202,7 +207,7 @@ app.patch('/api/pedidos/:id', (req, res) => {
     }
 });
 
-// Escuchar en el puerto dinámico de Railway binding en 0.0.0.0
+// Escuchar en el puerto dinámico asignado a 0.0.0.0
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor RestoManager corriendo en el puerto ${PORT}`);
 });
